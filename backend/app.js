@@ -25,10 +25,37 @@ const aiGuideRoutes = require('./routes/aiGuideRoutes');
 
 const app = express();
 
-// Security middleware (allow cross-origin for static assets and Google OAuth popups)
+// Security middleware
+// CSP must explicitly allow accounts.google.com scripts — Helmet's default
+// 'script-src self' blocks the GSI SDK and silently prevents Google Sign-In from loading.
 app.use(helmet({
   crossOriginResourcePolicy: { policy: 'cross-origin' },
-  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: [
+        "'self'",
+        "'unsafe-inline'",               // Vite injects inline scripts in the HTML
+        "https://accounts.google.com",   // Google Identity Services (GSI) SDK
+      ],
+      frameSrc: [
+        "'self'",
+        "https://accounts.google.com",   // Google OAuth popup frame
+      ],
+      connectSrc: [
+        "'self'",
+        "https://accounts.google.com",   // GSI token exchange
+      ],
+      imgSrc:    ["'self'", "data:", "https:", "blob:"],
+      styleSrc:  ["'self'", "https:", "'unsafe-inline'"],
+      fontSrc:   ["'self'", "https:", "data:"],
+      objectSrc: ["'none'"],
+      baseUri:   ["'self'"],
+      formAction: ["'self'"],
+      upgradeInsecureRequests: [],
+    },
+  },
 }));
 
 // CORS configuration - Allow frontend origins with credentials

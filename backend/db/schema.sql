@@ -1,21 +1,19 @@
 SET NAMES utf8mb4;
 SET default_storage_engine = InnoDB;
-CREATE DATABASE IF NOT EXISTS campus_care;
-USE campus_care;
 
-CREATE TABLE avatars (
+CREATE TABLE IF NOT EXISTS avatars (
     avatar_id INT AUTO_INCREMENT PRIMARY KEY,
     avatar_url VARCHAR(512) NOT NULL,
     UNIQUE KEY uq_avatar_url (avatar_url)
 );
 
-CREATE TABLE states (
+CREATE TABLE IF NOT EXISTS states (
 	state_id INT AUTO_INCREMENT PRIMARY KEY,
     state_name VARCHAR(50) NOT NULL,
     UNIQUE(state_name)
 );
 
-CREATE TABLE colleges (
+CREATE TABLE IF NOT EXISTS colleges (
 	college_id INT AUTO_INCREMENT PRIMARY KEY,
     email_domain VARCHAR(255) NOT NULL,
     college_name VARCHAR(255) NOT NULL,
@@ -25,7 +23,7 @@ CREATE TABLE colleges (
     UNIQUE(email_domain)
 );
 
-CREATE TABLE courses (
+CREATE TABLE IF NOT EXISTS courses (
     course_id INT AUTO_INCREMENT PRIMARY KEY,
     college_id INT NOT NULL,
     course_name VARCHAR(128) NOT NULL,
@@ -39,13 +37,13 @@ CREATE TABLE courses (
         ON DELETE RESTRICT
 );
 
-CREATE TABLE local_guide_categories(
+CREATE TABLE IF NOT EXISTS local_guide_categories (
 	category_id INT AUTO_INCREMENT PRIMARY KEY,
     category_name VARCHAR(100) NOT NULL,
     UNIQUE(category_name)
 );
 
-CREATE TABLE user_profiles (
+CREATE TABLE IF NOT EXISTS user_profiles (
 	user_id INT AUTO_INCREMENT PRIMARY KEY,
     is_moderator BOOLEAN DEFAULT 0,
     is_admin BOOLEAN DEFAULT 0,
@@ -70,13 +68,13 @@ CREATE TABLE user_profiles (
     FOREIGN KEY (native_state_id) REFERENCES states(state_id) ON UPDATE CASCADE ON DELETE SET NULL
 );
 
-CREATE TABLE blog_images (
+CREATE TABLE IF NOT EXISTS blog_images (
     blog_image_id INT AUTO_INCREMENT PRIMARY KEY,
     blog_image_url VARCHAR(512) NOT NULL,
     UNIQUE KEY uq_blog_image_url (blog_image_url)
 );
 
-CREATE TABLE blog (
+CREATE TABLE IF NOT EXISTS blog (
 	blog_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     college_id INT NOT NULL,
@@ -87,7 +85,7 @@ CREATE TABLE blog (
     FOREIGN KEY (college_id) REFERENCES colleges(college_id)
 );
 
-CREATE TABLE blog_specific_images (
+CREATE TABLE IF NOT EXISTS blog_specific_images (
 	blog_id INT NOT NULL,
     blog_image_id INT NOT NULL,
     image_index TINYINT NOT NULL,
@@ -97,7 +95,7 @@ CREATE TABLE blog_specific_images (
     UNIQUE(blog_id, image_index)
 );
 
-CREATE TABLE blog_comments (
+CREATE TABLE IF NOT EXISTS blog_comments (
 	comment_id INT AUTO_INCREMENT PRIMARY KEY,
     blog_id INT NOT NULL,
     user_id INT NOT NULL,
@@ -107,7 +105,7 @@ CREATE TABLE blog_comments (
     FOREIGN KEY (user_id) REFERENCES user_profiles(user_id) ON DELETE CASCADE
 );
 
-CREATE TABLE blog_likes (
+CREATE TABLE IF NOT EXISTS blog_likes (
 	blog_id INT NOT NULL,
     user_id INT NOT NULL,
     FOREIGN KEY (blog_id) REFERENCES blog(blog_id) ON DELETE CASCADE,
@@ -115,7 +113,7 @@ CREATE TABLE blog_likes (
     PRIMARY KEY (blog_id, user_id)
 );
 
-CREATE TABLE academic_resources (
+CREATE TABLE IF NOT EXISTS academic_resources (
 	resource_id INT AUTO_INCREMENT PRIMARY KEY,
     college_id INT NOT NULL,
     resource_title VARCHAR(255) NOT NULL,
@@ -125,7 +123,7 @@ CREATE TABLE academic_resources (
     UNIQUE KEY uq_resource_link (college_id, resource_link)
 );
 
-CREATE TABLE places (
+CREATE TABLE IF NOT EXISTS places (
 	place_id INT AUTO_INCREMENT PRIMARY KEY,
     category_id INT NOT NULL,
     college_id INT NOT NULL,
@@ -140,7 +138,7 @@ CREATE TABLE places (
     UNIQUE (place_name, college_id)
 );
 
-CREATE TABLE place_rating (
+CREATE TABLE IF NOT EXISTS place_rating (
     place_id INT NOT NULL,
     user_id INT NOT NULL,
     rating TINYINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
@@ -151,7 +149,7 @@ CREATE TABLE place_rating (
     PRIMARY KEY(place_id, user_id)
 );
 
-CREATE TABLE fares (
+CREATE TABLE IF NOT EXISTS fares (
     fare_id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
     college_id INT NOT NULL,
@@ -169,7 +167,7 @@ CREATE TABLE fares (
     FOREIGN KEY (college_id) REFERENCES colleges(college_id)
 );
 
-CREATE TABLE dashboard_images (
+CREATE TABLE IF NOT EXISTS dashboard_images (
     image_id INT AUTO_INCREMENT PRIMARY KEY,
     college_id INT NOT NULL,
     image_url VARCHAR(512) NOT NULL,

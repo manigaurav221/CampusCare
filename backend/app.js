@@ -25,9 +25,10 @@ const aiGuideRoutes = require('./routes/aiGuideRoutes');
 
 const app = express();
 
-// Security middleware (allow cross-origin for static assets like avatars)
+// Security middleware (allow cross-origin for static assets and Google OAuth popups)
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' }
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' }
 }));
 
 // CORS configuration - Allow frontend origins with credentials

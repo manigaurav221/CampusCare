@@ -11,7 +11,7 @@ class LocalGuide {
         COALESCE(ROUND(AVG(pr.rating), 1), 0) as average_rating,
         COUNT(pr.rating) as rating_count
       FROM places p
-      INNER JOIN local_guide_categories lg ON p.category_id = lg.category_id
+      LEFT JOIN local_guide_categories lg ON p.category_id = lg.category_id
       LEFT JOIN place_rating pr ON p.place_id = pr.place_id
       WHERE p.college_id = ?
     `;
@@ -43,7 +43,7 @@ class LocalGuide {
         COALESCE(ROUND(AVG(pr.rating), 1), 0) as average_rating,
         COUNT(pr.rating) as rating_count
       FROM places p
-      INNER JOIN local_guide_categories lg ON p.category_id = lg.category_id
+      LEFT JOIN local_guide_categories lg ON p.category_id = lg.category_id
       LEFT JOIN place_rating pr ON p.place_id = pr.place_id
       WHERE p.college_id = ? AND lg.category_name = ?
       GROUP BY p.place_id, p.place_name, p.place_description, p.address,

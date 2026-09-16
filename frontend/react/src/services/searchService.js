@@ -9,6 +9,16 @@ export class SearchService {
   // Search for places with autocomplete and proximity sorting
   static async searchPlaces(query, userLocation = null, limit = 10, options = {}) {
     try {
+      const campusLat = userLocation?.lat || 25.4920;
+      const campusLng = userLocation?.lng || 81.8639;
+      const delta = 0.25;
+      const viewbox = [
+        (campusLng - delta).toFixed(4),
+        (campusLat + delta).toFixed(4),
+        (campusLng + delta).toFixed(4),
+        (campusLat - delta).toFixed(4)
+      ].join(',');
+
       const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
         ...options,
         headers: {
@@ -18,6 +28,8 @@ export class SearchService {
         params: {
           format: 'json',
           q: query,
+          viewbox: viewbox,
+          bounded: 0, // Prioritize nearby without strictly dropping valid outer matches
           limit: limit * 2, // Get more results to filter and sort
           addressdetails: 1,
           extratags: 1,
@@ -120,121 +132,104 @@ export class SearchService {
     }
   }
 
-  // Find nearby places within radius - completely rewritten to work
-  static async findNearbyPlaces(lat, lng, radius = 50000, category = null) {
-    try {
-      console.log(`🔍 Searching for ${category || 'all'} places around ${lat.toFixed(4)}, ${lng.toFixed(4)} within ${radius}m`);
-      
-      // Try real search first - only use dummy data as last resort
-      let query = '';
-      if (!category) {
-        query = `restaurant OR hotel OR hospital OR shop OR atm OR bank OR cafe OR pharmacy near ${lat.toFixed(4)},${lng.toFixed(4)}`;
-      } else {
-        query = `${category} near ${lat.toFixed(4)},${lng.toFixed(4)}`;
-      }
-      
-      console.log(`🔍 Query: "${query}"`);
+  // Map Local Guide category to proper OpenStreetMap search keywords
+  static getCategoryKeywords(category) {
+    if (!category) return ['restaurant', 'cafe', 'hospital', 'shop', 'pharmacy'];
+    const cat = category.toLowerCase().trim();
+    if (cat.includes('food') || cat.includes('restaurant') || cat.includes('cafe')) {
+      return ['restaurant', 'cafe', 'dhaba', 'fast food', 'bakery'];
+    }
+    if (cat.includes('health') || cat.includes('hospital') || cat.includes('medical')) {
+      return ['hospital', 'pharmacy', 'clinic', 'chemist'];
+    }
+    if (cat.includes('hotspot') || cat.includes('tourism') || cat.includes('attraction')) {
+      return ['park', 'monument', 'temple', 'ghat', 'viewpoint'];
+    }
+    if (cat.includes('tech') || cat.includes('computer') || cat.includes('support')) {
+      return ['electronics', 'computer repair', 'mobile repair'];
+    }
+    if (cat.includes('general') || cat.includes('store') || cat.includes('grocery')) {
+      return ['supermarket', 'convenience store', 'grocery', 'stationery'];
+    }
+    if (cat.includes('cinema') || cat.includes('movie') || cat.includes('theatre')) {
+      return ['cinema', 'movie theatre'];
+    }
+    if (cat.includes('arcade') || cat.includes('game') || cat.includes('gaming')) {
+      return ['arcade', 'gaming', 'entertainment'];
+    }
+    if (cat.includes('cloth') || cat.includes('fashion') || cat.includes('apparel')) {
+      return ['clothing', 'clothes', 'tailor'];
+    }
+    if (cat.includes('logistics') || cat.includes('courier') || cat.includes('post')) {
+      return ['courier', 'post office', 'parcel'];
+    }
+    return [category];
+  }
 
-      // Make a location-specific search
-      const response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
+  // Find nearby places within radius using geographic bounding box viewbox
+  static async findNearbyPlaces(lat, lng, radius = 15000, category = null) {
+    try {
+      console.log(`🔍 Searching for ${category || 'all'} places around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+
+      const keywords = this.getCategoryKeywords(category);
+      const queryKeyword = keywords[0];
+
+      // Build bounding box viewbox around campus coordinates (~15-20km)
+      const radiusInMeters = radius || 15000;
+      const delta = Math.max(0.08, (radiusInMeters / 1000) / 111);
+      const viewbox = [
+        (lng - delta).toFixed(4),
+        (lat + delta).toFixed(4),
+        (lng + delta).toFixed(4),
+        (lat - delta).toFixed(4)
+      ].join(',');
+
+      // 1. Try search strictly bounded within local campus/city viewbox
+      let response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
+        headers: { 'User-Agent': USER_AGENT },
         params: {
           format: 'json',
-          q: query,
-          limit: 50,
+          q: queryKeyword,
+          viewbox: viewbox,
+          bounded: 1,
+          limit: 30,
           addressdetails: 1,
           extratags: 1,
-          countrycodes: 'in' // Focus on India
+          countrycodes: 'in'
         }
       });
 
-      console.log(`📊 Found ${response.data.length} raw results from Nominatim`);
+      let places = response.data || [];
 
-      // If no results with location-specific search, try broader search
-      let places = response.data;
+      // 2. If no places found bounded, try unbounded with viewbox priority
       if (places.length === 0) {
-        console.log('🔄 No results with location search, trying broader search...');
-        
-        const broaderQuery = category || 'amenity OR tourism OR shop OR restaurant OR hotel';
-        const broaderResponse = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
+        response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
+          headers: { 'User-Agent': USER_AGENT },
           params: {
             format: 'json',
-            q: broaderQuery,
-            limit: 50,
+            q: queryKeyword,
+            viewbox: viewbox,
+            bounded: 0,
+            limit: 30,
             addressdetails: 1,
             extratags: 1,
             countrycodes: 'in'
           }
         });
-        
-        places = broaderResponse.data;
-        console.log(`📊 Found ${places.length} results with broader search`);
+        places = response.data || [];
       }
 
-      // Filter by distance and format results
-      places = places
+      // Calculate distance and sort closest first
+      const formatted = places
         .map(place => ({
           ...place,
-          distance: this.calculateDistance(lat, lng, place.lat, place.lon)
+          distance: this.calculateDistance(lat, lng, parseFloat(place.lat), parseFloat(place.lon))
         }))
-        .filter(place => {
-          // Filter by radius
-          if (place.distance > radius) {
-            return false;
-          }
-          
-          // If no specific category, accept all places
-          if (!category) {
-            return true;
-          }
-          
-          // Category filtering - be very strict for main categories
-          const categoryLower = category.toLowerCase();
-          const displayNameLower = place.display_name.toLowerCase();
-          const typeLower = (place.type || '').toLowerCase();
-          const classLower = (place.class || '').toLowerCase();
-          
-          // Very strict filtering for hospitals
-          if (category === 'hospital') {
-            return (typeLower === 'hospital' || classLower === 'amenity') && 
-                   (displayNameLower.includes('hospital') || displayNameLower.includes('clinic') || displayNameLower.includes('medical'));
-          }
-          
-          // Very strict filtering for hotels
-          if (category === 'hotel') {
-            return (classLower === 'tourism' && typeLower === 'hotel') ||
-                   displayNameLower.includes('hotel') ||
-                   displayNameLower.includes('guest house') ||
-                   displayNameLower.includes('resort');
-          }
-          
-          // Very strict filtering for restaurants
-          if (category === 'restaurant') {
-            return (classLower === 'amenity' && typeLower === 'restaurant') ||
-                   displayNameLower.includes('restaurant') ||
-                   displayNameLower.includes('cafe');
-          }
-          
-          // For other categories, be permissive
-          return displayNameLower.includes(categoryLower) ||
-                 typeLower.includes(categoryLower) ||
-                 classLower.includes(categoryLower);
-        })
+        .filter(place => place.distance <= (radiusInMeters * 1.5))
         .sort((a, b) => a.distance - b.distance);
 
-      console.log(`✅ Filtered to ${places.length} valid places`);
-      
-      if (places.length > 0) {
-        console.log('📍 Nearest place:', places[0].display_name, `(${Math.round(places[0].distance)}m)`);
-        console.log('📍 Sample results:');
-        places.slice(0, 3).forEach((place, i) => {
-          console.log(`  ${i+1}. ${place.display_name} - ${Math.round(place.distance)}m`);
-        });
-        return places;
-      } else {
-        console.log('❌ No real places found. Using category-specific dummy data...');
-        return this.getCategorySpecificDummyData(lat, lng, category);
-      }
-      
+      console.log(`✅ Found ${formatted.length} nearby places for ${queryKeyword}`);
+      return formatted.length > 0 ? formatted : this.getCategorySpecificDummyData(lat, lng, category);
     } catch (error) {
       console.error('❌ Search error:', error);
       return this.getCategorySpecificDummyData(lat, lng, category);

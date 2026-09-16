@@ -1,10 +1,65 @@
 const express = require('express');
 const { body } = require('express-validator');
-const { register, login, getProfile, updateAvatar, updateProfile } = require('../controllers/authController');
+const { 
+  register, 
+  login, 
+  logout,
+  getProfile, 
+  updateAvatar, 
+  updateProfile,
+  sendVerificationCode,
+  verifyCode,
+  googleLogin
+} = require('../controllers/authController');
 const { authenticate } = require('../middleware/auth');
 const { handleValidationErrors } = require('../middleware/validate');
 
 const router = express.Router();
+
+// POST /api/auth/logout
+router.post('/logout', logout);
+
+// POST /api/auth/send-verification-code
+router.post(
+  '/send-verification-code',
+  [
+    body('email')
+      .isEmail()
+      .withMessage('Please provide a valid email address')
+      .normalizeEmail()
+  ],
+  handleValidationErrors,
+  sendVerificationCode
+);
+
+// POST /api/auth/verify-code
+router.post(
+  '/verify-code',
+  [
+    body('email')
+      .isEmail()
+      .withMessage('Please provide a valid email address')
+      .normalizeEmail(),
+    body('code')
+      .trim()
+      .notEmpty()
+      .withMessage('Verification code is required')
+  ],
+  handleValidationErrors,
+  verifyCode
+);
+
+// POST /api/auth/google-login
+router.post(
+  '/google-login',
+  [
+    body('credential')
+      .notEmpty()
+      .withMessage('Google credential token is required')
+  ],
+  handleValidationErrors,
+  googleLogin
+);
 
 // POST /api/auth/register
 router.post(

@@ -5,10 +5,8 @@ const nodemailer = require('nodemailer');
 // Initialize transporter based on environment variables
 const createTransporter = () => {
   const host = process.env.SMTP_HOST;
-  const port = parseInt(process.env.SMTP_PORT || '587', 10);
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
-  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
 
   if (!user || !pass) {
     return null;
@@ -25,15 +23,23 @@ const createTransporter = () => {
     });
   }
 
-  // Generic custom SMTP configuration
+  // Brevo / generic SMTP:
+  // Port 465 (SSL) is preferred on cloud hosting (Render/AWS) because port 587 STARTTLS
+  // is frequently blocked by cloud provider firewalls to prevent spam abuse.
+  const port = parseInt(process.env.SMTP_PORT || '465', 10);
+  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+
   return nodemailer.createTransport({
-    host: host || 'smtp.gmail.com',
+    host: host || 'smtp-relay.brevo.com',
     port,
     secure,
     auth: {
       user: user.trim(),
       pass: pass.trim()
-    }
+    },
+    connectionTimeout: 10000,  // 10s — fail fast instead of hanging
+    greetingTimeout: 10000,
+    socketTimeout: 15000
   });
 };
 

@@ -17,8 +17,15 @@ export function LoginForm() {
 
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
-  // Initialize Google Identity Services
+  // Track whether Google SDK has been initialized
+  const gsiInitialized = useRef(false);
+
+  // Initialize Google Identity Services with retry polling
+  // The GSI script in index.html is async/defer — it may load after React renders.
+  // We poll every 200ms for up to 5s to ensure the button always renders.
   useEffect(() => {
+    if (!clientId) return;
+
     const handleGoogleCallback = async (response) => {
       if (!response.credential) return;
       setGoogleLoading(true);
@@ -42,16 +49,17 @@ export function LoginForm() {
       }
     };
 
-    if (window.google?.accounts?.id) {
+    const initGSI = () => {
+      if (!window.google?.accounts?.id) return false;
       try {
         window.google.accounts.id.initialize({
-          client_id: clientId || 'dummy_client_id',
+          client_id: clientId,
           callback: handleGoogleCallback,
           auto_select: false,
           cancel_on_tap_outside: true,
         });
 
-        if (googleBtnContainerRef.current && clientId) {
+        if (googleBtnContainerRef.current) {
           googleBtnContainerRef.current.innerHTML = '';
           window.google.accounts.id.renderButton(googleBtnContainerRef.current, {
             type: 'standard',
@@ -63,24 +71,35 @@ export function LoginForm() {
             width: '100%',
           });
         }
+        gsiInitialized.current = true;
+        return true;
       } catch (e) {
         console.warn('Google GSI initialization notice:', e.message);
+        return false;
       }
-    }
+    };
+
+    // Try immediately, then poll every 200ms for up to 5 seconds
+    if (initGSI()) return;
+
+    let attempts = 0;
+    const maxAttempts = 25; // 25 × 200ms = 5s
+    const interval = setInterval(() => {
+      attempts++;
+      if (initGSI() || attempts >= maxAttempts) {
+        clearInterval(interval);
+      }
+    }, 200);
+
+    return () => clearInterval(interval);
   }, [clientId]);
 
   const handleCustomGoogleClick = () => {
-    if (!clientId || clientId === 'your_google_client_id.apps.googleusercontent.com') {
-      setError(
-        'Google Client ID is not configured yet. Please add VITE_GOOGLE_CLIENT_ID to your .env file.'
-      );
-      return;
-    }
-
     if (window.google?.accounts?.id) {
       window.google.accounts.id.prompt();
     } else {
-      setError('Google Sign-In SDK is loading or unavailable. Please check your connection.');
+      // SDK still not loaded — try initializing again inline
+      setError('Google Sign-In is unavailable. Please ensure accounts.google.com is not blocked by an extension or firewall.');
     }
   };
 

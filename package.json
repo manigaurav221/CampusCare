@@ -4,7 +4,7 @@
   "description": "CampusCare - Unified Student & Campus Life Portal",
   "private": true,
   "scripts": {
-    "build": "npm --prefix backend install && npm --prefix frontend/react install && npm --prefix frontend/react run build",
+    "build": "npm --prefix backend install && npm --prefix frontend/react install --include=dev && npm --prefix frontend/react run build",
     "start": "node backend/server.js",
     "init-db": "node backend/scripts/init-database.js",
     "migrate": "node backend/scripts/migrate-email-verifications.js"

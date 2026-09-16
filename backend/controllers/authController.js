@@ -1,8 +1,19 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 const pool = require('../config/database');
 const User = require('../models/User');
+const EmailVerification = require('../models/EmailVerification');
+const { sendVerificationEmail } = require('../services/emailService');
 const { JWT_EXPIRATION } = require('../config/constants');
+
+// Helper for secure HttpOnly cookie settings
+const getCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+});
 
 // Register a new user
 const register = async (req, res) => {
@@ -32,6 +43,15 @@ const register = async (req, res) => {
 
     const cleanEmail = String(email).trim().toLowerCase();
     const cleanRegNo = String(reg_no).trim();
+
+    // Verify that the email was verified
+    const isVerified = await EmailVerification.isEmailVerified(cleanEmail);
+    if (!isVerified) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please verify your college email address with the verification code before registering.'
+      });
+    }
 
     // Check if user already exists with this email
     const existingUser = await User.findByEmail(cleanEmail);
@@ -107,12 +127,18 @@ const register = async (req, res) => {
       native_city: native_city ? String(native_city).trim() : null
     });
 
+    // Cleanup verification entry now that registration is complete
+    await EmailVerification.consumeVerification(cleanEmail);
+
     // Generate JWT token
     const token = jwt.sign(
       { userId: user.user_id },
       process.env.JWT_SECRET,
       { expiresIn: JWT_EXPIRATION }
     );
+
+    // Set HttpOnly cookie
+    res.cookie('token', token, getCookieOptions());
 
     // Return user data (without password)
     res.status(201).json({
@@ -200,6 +226,9 @@ const login = async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: JWT_EXPIRATION }
     );
+
+    // Set HttpOnly cookie
+    res.cookie('token', token, getCookieOptions());
 
     // Get user details
     const userDetails = await User.findByIdWithDetails(user.user_id);
@@ -391,11 +420,232 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// Send email verification code (OTP)
+const sendVerificationCode = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide an email address.'
+      });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+
+    // Check if user already exists
+    const existingUser = await User.findByEmail(cleanEmail);
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        message: 'An account with this email already exists. Please log in instead.'
+      });
+    }
+
+    // Validate college email domain
+    const college = await User.findCollegeByEmailDomain(cleanEmail);
+    if (!college) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid college email domain. Please use your official college email.'
+      });
+    }
+
+    // Generate random 6-digit numeric OTP
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Save to database
+    await EmailVerification.createVerification(cleanEmail, otpCode);
+
+    // Send email
+    const emailResult = await sendVerificationEmail(cleanEmail, otpCode);
+
+    if (!emailResult.sent) {
+      return res.status(500).json({
+        success: false,
+        message: emailResult.error || 'Failed to send verification email. Please check your mail server configuration.'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Verification code sent to your email.',
+      college: {
+        collegeId: college.college_id,
+        collegeName: college.college_name
+      }
+    });
+  } catch (error) {
+    console.error('Send verification code error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send verification code. Please try again.'
+    });
+  }
+};
+
+// Verify the code entered by user
+const verifyCode = async (req, res) => {
+  try {
+    const { email, code } = req.body;
+    if (!email || !code) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and verification code are required.'
+      });
+    }
+
+    const cleanEmail = String(email).trim().toLowerCase();
+    const result = await EmailVerification.verifyCode(cleanEmail, code);
+
+    if (!result.success) {
+      return res.status(400).json({
+        success: false,
+        message: result.message
+      });
+    }
+
+    res.json({
+      success: true,
+      message: result.message
+    });
+  } catch (error) {
+    console.error('Verify code error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error verifying code.'
+    });
+  }
+};
+
+// Google Login handler
+const googleLogin = async (req, res) => {
+  try {
+    const { credential } = req.body;
+    if (!credential) {
+      return res.status(400).json({
+        success: false,
+        message: 'Google credential is required.'
+      });
+    }
+
+    let payload = null;
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+
+    try {
+      if (clientId && clientId !== 'your_google_client_id.apps.googleusercontent.com') {
+        const client = new OAuth2Client(clientId);
+        const ticket = await client.verifyIdToken({
+          idToken: credential,
+          audience: clientId
+        });
+        payload = ticket.getPayload();
+      } else {
+        // Fallback: verify directly with Google's public tokeninfo endpoint
+        const tokenRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`);
+        if (!tokenRes.ok) {
+          throw new Error('Google token validation endpoint rejected the token');
+        }
+        payload = await tokenRes.json();
+      }
+    } catch (verifyErr) {
+      console.error('Token verification error:', verifyErr.message);
+      return res.status(401).json({
+        success: false,
+        message: 'Google authentication failed: ' + verifyErr.message
+      });
+    }
+
+    if (!payload || !payload.email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Unable to extract email from Google account.'
+      });
+    }
+
+    const googleEmail = payload.email.trim().toLowerCase();
+
+    // Check if user already exists
+    const user = await User.findByEmail(googleEmail);
+
+    if (!user) {
+      // Account does not exist yet. Check if domain belongs to a recognized college.
+      const college = await User.findCollegeByEmailDomain(googleEmail);
+
+      return res.status(404).json({
+        success: false,
+        notRegistered: true,
+        message: 'No CampusCare account found with this Google email. Please complete registration to set up your student profile.',
+        email: googleEmail,
+        firstName: payload.given_name || payload.name || '',
+        lastName: payload.family_name || '',
+        collegeName: college ? college.college_name : null,
+        collegeId: college ? college.college_id : null
+      });
+    }
+
+    // User exists! Generate JWT token
+    const token = jwt.sign(
+      { userId: user.user_id },
+      process.env.JWT_SECRET,
+      { expiresIn: JWT_EXPIRATION }
+    );
+
+    // Set HttpOnly cookie
+    res.cookie('token', token, getCookieOptions());
+
+    const userDetails = await User.findByIdWithDetails(user.user_id);
+
+    res.json({
+      success: true,
+      message: 'Google login successful',
+      token,
+      user: {
+        userId: userDetails.user_id,
+        email: userDetails.email,
+        firstName: userDetails.first_name,
+        lastName: userDetails.last_name,
+        collegeId: userDetails.college_id,
+        collegeName: userDetails.college_name,
+        courseName: userDetails.course_name,
+        isModerator: userDetails.is_moderator,
+        isAdmin: userDetails.is_admin,
+        avatarUrl: userDetails.avatar_url
+      }
+    });
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during Google login.'
+    });
+  }
+};
+
+// Logout user (clears HttpOnly cookie)
+const logout = async (req, res) => {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+  });
+  res.json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+};
+
 module.exports = {
   register,
   login,
+  logout,
   getProfile,
   updateAvatar,
-  updateProfile
+  updateProfile,
+  sendVerificationCode,
+  verifyCode,
+  googleLogin
 };
+
+
 

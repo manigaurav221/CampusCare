@@ -100,13 +100,65 @@ export function useAuthOperations() {
     }
   };
 
+  const googleLogin = async (credential) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiRequest('/auth/google-login', 'POST', { credential });
+
+      setToken(res.token);
+      setUser(res.user);
+      setContextToken(res.token);
+      setContextUser(res.user);
+
+      navigate('/splash');
+      return { success: true };
+    } catch (err) {
+      const errorMessage = formatApiError(err);
+      setError(errorMessage);
+      return { 
+        success: false, 
+        error: errorMessage,
+        notRegistered: err?.response?.data?.notRegistered || err?.notRegistered || false,
+        prefillData: err?.response?.data || err || null
+      };
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const sendVerificationCode = async (email) => {
+    try {
+      const res = await apiRequest('/auth/send-verification-code', 'POST', { email });
+      return { success: true, message: res.message, college: res.college };
+    } catch (err) {
+      const errorMessage = formatApiError(err);
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  const verifyCode = async (email, code) => {
+    try {
+      const res = await apiRequest('/auth/verify-code', 'POST', { email, code });
+      return { success: true, message: res.message };
+    } catch (err) {
+      const errorMessage = formatApiError(err);
+      return { success: false, error: errorMessage };
+    }
+  };
+
   return {
     login,
     register,
+    googleLogin,
+    sendVerificationCode,
+    verifyCode,
     getProfile,
     updateProfile,
     loading,
     error,
+    setError,
   };
 }
+
 

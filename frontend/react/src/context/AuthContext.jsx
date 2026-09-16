@@ -1,24 +1,40 @@
 import { createContext, useContext, useState, useEffect } from 'react';
-import { getUser, getToken } from '../services/authStorage';
+import { getUser, getToken, clearAuth } from '../services/authStorage';
+import { apiRequest } from '../services/apiClient';
 
-// Auth Context for global auth state
-// Replaces: localStorage reads throughout the app
-
+// Auth Context for global auth state with HttpOnly Cookie session support
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUserState] = useState(null);
-  const [token, setTokenState] = useState(null);
+  const [user, setUserState] = useState(() => getUser());
+  const [token, setTokenState] = useState(() => getToken());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Initialize from localStorage
-    const storedUser = getUser();
-    const storedToken = getToken();
-    
-    setUserState(storedUser);
-    setTokenState(storedToken);
-    setLoading(false);
+    // Verify session with backend using HttpOnly cookie
+    const verifySession = async () => {
+      try {
+        const res = await apiRequest('/auth/profile', 'GET', null, false);
+        if (res.user) {
+          setUserState(res.user);
+          setTokenState((prev) => prev || 'cookie_session');
+        } else {
+          setUserState(null);
+          setTokenState(null);
+          clearAuth();
+        }
+      } catch (err) {
+        // If 401 or network error without existing user, reset
+        if (!getUser()) {
+          setUserState(null);
+          setTokenState(null);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    verifySession();
   }, []);
 
   const setUser = (userData) => {
@@ -43,12 +59,15 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
+    try {
+      await apiRequest('/auth/logout', 'POST');
+    } catch {
+      // Ignore network errors on logout
+    }
     setUserState(null);
     setTokenState(null);
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    localStorage.removeItem('collegeName');
+    clearAuth();
   };
 
   const value = {
@@ -58,7 +77,7 @@ export function AuthProvider({ children }) {
     setToken: setAuthToken,
     logout,
     loading,
-    isAuthenticated: !!token,
+    isAuthenticated: !!user || !!token,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

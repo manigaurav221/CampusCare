@@ -176,3 +176,14 @@ CREATE TABLE dashboard_images (
     UNIQUE KEY uq_dashboard_image(image_url),
     FOREIGN KEY (college_id) REFERENCES colleges(college_id)
 );
+
+CREATE TABLE IF NOT EXISTS email_verifications (
+    verification_id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(254) NOT NULL,
+    otp_code VARCHAR(10) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    is_verified BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_email_otp (email, otp_code),
+    INDEX idx_email_verified (email, is_verified)
+);

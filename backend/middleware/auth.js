@@ -1,21 +1,19 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token (from HttpOnly cookie or Authorization header)
 const authenticate = async (req, res, next) => {
   try {
-    // Get token from header
-    const authHeader = req.headers.authorization;
+    let token = null;
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({
-        success: false,
-        message: 'No token provided. Authorization denied.'
-      });
+    // 1. Check HttpOnly cookie first
+    if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
     }
-
-    // Extract token
-    const token = authHeader.substring(7); // Remove 'Bearer ' prefix
+    // 2. Fallback to Authorization: Bearer header
+    else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.substring(7);
+    }
 
     if (!token) {
       return res.status(401).json({
@@ -74,11 +72,14 @@ const authenticate = async (req, res, next) => {
 // Optional authentication - doesn't fail if no token
 const optionalAuth = async (req, res, next) => {
   try {
-    const authHeader = req.headers.authorization;
+    let token = null;
+    if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    } else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.substring(7);
+    }
 
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      const token = authHeader.substring(7);
-
+    if (token) {
       try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const user = await User.findById(decoded.userId);

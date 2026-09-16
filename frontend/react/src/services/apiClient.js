@@ -43,6 +43,7 @@ export async function apiRequest(endpoint, method = 'GET', body = null, token = 
       method,
       headers,
       body: body ? JSON.stringify(body) : null,
+      credentials: 'include',
     });
 
     let data;

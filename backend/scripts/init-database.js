@@ -1,4 +1,4 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const mysql = require('mysql2/promise');
 const fs = require('fs');
 const path = require('path');
@@ -8,9 +8,10 @@ async function initializeDatabase() {
 
   const config = {
     host: process.env.DB_HOST || 'localhost',
-    port: process.env.DB_PORT || 3306,
+    port: parseInt(process.env.DB_PORT || '3306', 10),
     user: process.env.DB_USER || 'root',
     password: process.env.DB_PASSWORD || '',
+    ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
     multipleStatements: true
   };
 
@@ -19,28 +20,36 @@ async function initializeDatabase() {
 
   try {
     console.log('📡 Connecting to MySQL server...');
-    connection = await mysql.createConnection(config);
-    console.log('✅ Connected to MySQL server\n');
+    try {
+      connection = await mysql.createConnection(config);
+      console.log('✅ Connected to MySQL server\n');
 
-    // ✅ MUST use query()
-    await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
-    console.log(`✅ Database '${dbName}' is ready\n`);
+      // Attempt to create database if permitted (e.g. local MySQL)
+      await connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``);
+      console.log(`✅ Database '${dbName}' ready\n`);
+      await connection.end();
+    } catch (createErr) {
+      console.log(`ℹ️  Note on database creation: ${createErr.message}`);
+      console.log(`Connecting directly to database '${dbName}'...\n`);
+      if (connection) await connection.end().catch(() => {});
+    }
 
-    // ❌ REMOVE USE DATABASE
-    // await connection.execute(`USE \`${dbName}\``);
-
-    // ✅ Reconnect WITH database
-    await connection.end();
+    // Reconnect directly with database
     connection = await mysql.createConnection({
       ...config,
       database: dbName
     });
 
     // ---------- SCHEMA ----------
-    const schemaSQL = fs.readFileSync(
+    let schemaSQL = fs.readFileSync(
       path.join(__dirname, '..', 'db', 'schema.sql'),
       'utf8'
     );
+
+    // Strip hardcoded CREATE DATABASE / USE so it works with any DB name (e.g. cloud defaultdb)
+    schemaSQL = schemaSQL
+      .replace(/CREATE DATABASE IF NOT EXISTS [^;]+;/gi, '')
+      .replace(/USE [^;]+;/gi, '');
 
     console.log('🔨 Executing schema.sql...');
     await connection.query(schemaSQL); // ✅ SINGLE CALL

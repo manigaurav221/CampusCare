@@ -1,0 +1,25 @@
+{
+  "name": "campuscare",
+  "version": "1.0.0",
+  "description": "CampusCare - Unified Student & Campus Life Portal",
+  "private": true,
+  "scripts": {
+    "build": "npm --prefix backend install && npm --prefix frontend/react install && npm --prefix frontend/react run build",
+    "start": "node backend/server.js",
+    "init-db": "node backend/scripts/init-database.js",
+    "migrate": "node backend/scripts/migrate-email-verifications.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "campuscare",
+    "student-portal",
+    "react",
+    "nodejs",
+    "express"
+  ],
+  "author": "CampusCare Team",
+  "license": "ISC"
+}
+

@@ -1,4 +1,4 @@
---ACADEMIC RESOURCES
+-- ACADEMIC RESOURCES
 INSERT IGNORE INTO academic_resources (college_id, resource_title, resource_description, resource_link) VALUES
 (1, 'First Year Resources', 'Resources for the students of first year across all branches', 'https://drive.google.com/drive/folders/1-2Ecfzlgj5Kr260HKx1B8pgCDtWbiDhF'),
 (1, 'Computer Science and Engineering', 'Resources for students of second, pre-final and final years of Computer Science and Engineering department', 'https://drive.google.com/drive/u/0/folders/1MLMiaW0vq0K0lWtUakqLNXjBIfSa9Nw0'),
@@ -11,7 +11,7 @@ INSERT IGNORE INTO academic_resources (college_id, resource_title, resource_desc
 (1, 'Production and Industrial Engineering', 'Resources for students of second, pre-final and final years of Production and Industrial Engineering department', 'https://drive.google.com/drive/folders/1THq-Nv3vxPxsDle_HhvKeEBmroz8LWDi'),
 (1, '7th Semester Open Electives', 'Resources for the open elective courses for students in their final year', 'https://drive.google.com/drive/u/0/folders/1x534EdiyftOrjEb_KYeMXazxbvi7Qlkw');
 
---COURSES
+-- COURSES
 INSERT IGNORE INTO courses (college_id, course_name) VALUES
 (1, 'B.Tech. in Computer Science and Engineering'),
 (1, 'B.Tech. in Electronics and Communication Engineering'),

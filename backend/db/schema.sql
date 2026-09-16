@@ -133,6 +133,11 @@ CREATE TABLE IF NOT EXISTS places (
     distance DECIMAL(6, 2),
     website VARCHAR(2048),
     phone VARCHAR(20),
+    lat DECIMAL(9,6) DEFAULT NULL,
+    lng DECIMAL(9,6) DEFAULT NULL,
+    price_range VARCHAR(50) DEFAULT '₹₹',
+    tags VARCHAR(255) DEFAULT NULL,
+    submitted_by INT DEFAULT NULL,
     FOREIGN KEY (category_id) REFERENCES local_guide_categories(category_id) ON UPDATE CASCADE ON DELETE CASCADE,
     FOREIGN KEY (college_id) REFERENCES colleges(college_id),
     UNIQUE (place_name, college_id)

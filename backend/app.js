@@ -45,9 +45,20 @@ app.use(helmet({
       ],
       connectSrc: [
         "'self'",
-        "https://accounts.google.com",   // GSI token exchange
+        "https://accounts.google.com",
+        "https://router.project-osrm.org",
+        "https://*.openstreetmap.org",
       ],
-      imgSrc:    ["'self'", "data:", "https:", "blob:"],
+      imgSrc:    [
+        "'self'",
+        "data:",
+        "https:",
+        "blob:",
+        "https://*.openstreetmap.org",
+        "https://*.openstreetmap.fr",
+        "https://server.arcgisonline.com",
+        "https://*.arcgisonline.com",
+      ],
       styleSrc:  ["'self'", "https:", "'unsafe-inline'"],
       fontSrc:   ["'self'", "https:", "data:"],
       objectSrc: ["'none'"],

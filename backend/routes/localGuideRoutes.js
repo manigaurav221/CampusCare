@@ -8,7 +8,9 @@ const {
   addRating,
   getUserRating,
   getPlaceReviews,
-  createPlace
+  createPlace,
+  searchOnlinePlaces,
+  calculateRoute
 } = require('../controllers/localGuideController');
 const { authenticate, optionalAuth } = require('../middleware/auth');
 const { requireStudent } = require('../middleware/authorize');
@@ -18,6 +20,12 @@ const router = express.Router();
 
 // GET /api/local-guide/categories - Get all categories (public)
 router.get('/categories', getCategories);
+
+// GET /api/local-guide/search-online - Search online places via Nominatim proxy
+router.get('/search-online', searchOnlinePlaces);
+
+// GET /api/local-guide/route - OSRM road routing proxy
+router.get('/route', calculateRoute);
 
 // GET /api/local-guide/places - Get all places (public, collegeId in query)
 router.get('/places', optionalAuth, getPlaces);

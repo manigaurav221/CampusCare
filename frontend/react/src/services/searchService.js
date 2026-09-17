@@ -103,8 +103,22 @@ export class SearchService {
     }
   }
 
-  // Calculate route using OSRM (Open Source Routing Machine)
-  static async calculateRoute(startLat, startLng, endLat, endLng, profile = 'foot') {
+  // Calculate route using backend proxy first (falling back to direct OSRM)
+  static async calculateRoute(startLat, startLng, endLat, endLng, profile = 'driving') {
+    // 1. Try backend proxy first (avoids browser CSP/CORS blocks)
+    try {
+      const response = await axios.get('/api/local-guide/route', {
+        params: { startLat, startLng, endLat, endLng, profile },
+        timeout: 7000
+      });
+      if (response.data?.routes?.[0]?.geometry?.coordinates) {
+        return response.data;
+      }
+    } catch (proxyErr) {
+      console.warn('Backend route proxy failed, trying direct OSRM...', proxyErr.message);
+    }
+
+    // 2. Fallback to direct OSRM call
     try {
       const OSRM_BASE_URL = `https://router.project-osrm.org/route/v1/${profile}`;
       const response = await axios.get(`${OSRM_BASE_URL}/${startLng},${startLat};${endLng},${endLat}`, {
@@ -114,17 +128,9 @@ export class SearchService {
           steps: true,
           alternatives: false,
           continue_straight: false
-        }
+        },
+        timeout: 7000
       });
-      
-      console.log(`🗺️ OSRM Response for ${profile}:`, {
-        code: response.data.code,
-        routes: response.data.routes?.length,
-        distance: response.data.routes?.[0]?.distance,
-        duration: response.data.routes?.[0]?.duration,
-        steps: response.data.routes?.[0]?.legs?.[0]?.steps?.length
-      });
-      
       return response.data;
     } catch (error) {
       console.error('Route calculation error:', error);
@@ -166,74 +172,33 @@ export class SearchService {
     return [category];
   }
 
-  // Find nearby places within radius using geographic bounding box viewbox
-  static async findNearbyPlaces(lat, lng, radius = 15000, category = null) {
+  // Find nearby places using backend proxy first (falls back to client dummy data)
+  static async findNearbyPlaces(lat, lng, radius = 15000, category = null, query = null) {
     try {
-      console.log(`🔍 Searching for ${category || 'all'} places around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+      console.log(`🔍 Searching nearby for category="${category}" q="${query || ''}" around ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
 
-      const keywords = this.getCategoryKeywords(category);
-      const queryKeyword = keywords[0];
-
-      // Build bounding box viewbox around campus coordinates (~15-20km)
-      const radiusInMeters = radius || 15000;
-      const delta = Math.max(0.08, (radiusInMeters / 1000) / 111);
-      const viewbox = [
-        (lng - delta).toFixed(4),
-        (lat + delta).toFixed(4),
-        (lng + delta).toFixed(4),
-        (lat - delta).toFixed(4)
-      ].join(',');
-
-      // 1. Try search strictly bounded within local campus/city viewbox
-      let response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
-        headers: { 'User-Agent': USER_AGENT },
+      // 1. Query server-side proxy (has proper User-Agent and no browser CORS/preflight issues)
+      const response = await axios.get('/api/local-guide/search-online', {
         params: {
-          format: 'json',
-          q: queryKeyword,
-          viewbox: viewbox,
-          bounded: 1,
-          limit: 30,
-          addressdetails: 1,
-          extratags: 1,
-          countrycodes: 'in'
-        }
+          lat,
+          lng,
+          radius,
+          category: category || '',
+          q: query || ''
+        },
+        timeout: 8000
       });
 
-      let places = response.data || [];
-
-      // 2. If no places found bounded, try unbounded with viewbox priority
-      if (places.length === 0) {
-        response = await axios.get(`${NOMINATIM_BASE_URL}/search`, {
-          headers: { 'User-Agent': USER_AGENT },
-          params: {
-            format: 'json',
-            q: queryKeyword,
-            viewbox: viewbox,
-            bounded: 0,
-            limit: 30,
-            addressdetails: 1,
-            extratags: 1,
-            countrycodes: 'in'
-          }
-        });
-        places = response.data || [];
+      if (response.data?.success && Array.isArray(response.data.places) && response.data.places.length > 0) {
+        console.log(`✅ Backend search-online returned ${response.data.places.length} places for "${category || query}"`);
+        return response.data.places;
       }
-
-      // Calculate distance and sort closest first
-      const formatted = places
-        .map(place => ({
-          ...place,
-          distance: this.calculateDistance(lat, lng, parseFloat(place.lat), parseFloat(place.lon))
-        }))
-        .filter(place => place.distance <= (radiusInMeters * 1.5))
-        .sort((a, b) => a.distance - b.distance);
-
-      console.log(`✅ Found ${formatted.length} nearby places for ${queryKeyword}`);
-      return formatted.length > 0 ? formatted : this.getCategorySpecificDummyData(lat, lng, category);
-    } catch (error) {
-      console.error('❌ Search error:', error);
-      return this.getCategorySpecificDummyData(lat, lng, category);
+    } catch (apiErr) {
+      console.warn('Backend search-online failed, falling back to category data:', apiErr.message);
     }
+
+    // 2. Fallback to category-normalized dummy data
+    return this.getCategorySpecificDummyData(lat, lng, category || query);
   }
 
   // Helper method to get category-specific dummy data

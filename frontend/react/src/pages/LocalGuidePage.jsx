@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { TopNav } from '../components/layout/TopNav';
 import { Footer } from '../components/layout/Footer';
 import { SEO } from '../components/common/SEO';
@@ -40,6 +40,17 @@ export function LocalGuidePage() {
         p.address?.toLowerCase().includes(q)
     );
   }, [places, searchQuery]);
+
+  // When user types in search query and no database spots match, automatically trigger online search!
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length >= 2 && filteredPlaces.length === 0) {
+      const timer = setTimeout(() => {
+        fetchOnlineFallback(selectedCategory, query);
+      }, 450);
+      return () => clearTimeout(timer);
+    }
+  }, [searchQuery, filteredPlaces.length, selectedCategory, fetchOnlineFallback]);
 
   // Handle claiming an online spot into the permanent student database
   const handleClaimOnlineSpot = async (onlinePlace, rating, reviewText) => {

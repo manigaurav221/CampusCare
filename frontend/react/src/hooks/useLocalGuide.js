@@ -30,47 +30,31 @@ export function useLocalGuide() {
   }, []);
 
   // Fetch online places fallback via OpenStreetMap / Nominatim
-  const fetchOnlineFallback = useCallback(async (catName) => {
+  const fetchOnlineFallback = useCallback(async (catName, query = null) => {
     setOnlineLoading(true);
     try {
-      const searchTerm = catName || 'cafe OR restaurant OR medical';
-      const results = await SearchService.findNearbyPlaces(MNNIT_LAT, MNNIT_LNG, 15000, searchTerm);
+      const results = await SearchService.findNearbyPlaces(MNNIT_LAT, MNNIT_LNG, 15000, catName, query);
 
-      const formatted = (results || []).slice(0, 12).map((item, idx) => {
-        // Calculate distance from MNNIT
+      const formatted = (results || []).slice(0, 16).map((item, idx) => {
         const itemLat = parseFloat(item.lat);
         const itemLng = parseFloat(item.lon || item.lng);
-        let dist = null;
-        if (!isNaN(itemLat) && !isNaN(itemLng)) {
-          const R = 6371;
-          const dLat = ((itemLat - MNNIT_LAT) * Math.PI) / 180;
-          const dLon = ((itemLng - MNNIT_LNG) * Math.PI) / 180;
-          const a =
-            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-            Math.cos((MNNIT_LAT * Math.PI) / 180) *
-              Math.cos((itemLat * Math.PI) / 180) *
-              Math.sin(dLon / 2) *
-              Math.sin(dLon / 2);
-          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-          dist = (R * c).toFixed(1);
-        }
 
-        const name = (item.display_name || item.name || 'Local Spot').split(',')[0];
-        const address = (item.display_name || '').split(',').slice(1, 3).join(',').trim() || 'Prayagraj';
+        const name = (item.place_name || item.display_name || item.name || 'Local Spot').split(',')[0].trim();
+        const address = item.address || (item.display_name || '').split(',').slice(1, 3).join(',').trim() || 'Prayagraj';
 
         return {
-          place_id: `online-${idx}-${Date.now()}`,
+          place_id: item.place_id || `online-${idx}-${Date.now()}`,
           place_name: name,
-          place_description: `Discovered from OpenStreetMap directory near Teliyarganj / Prayagraj. Be the first student to review and rate this place!`,
+          place_description: item.place_description || `Discovered from OpenStreetMap directory near campus (${address}). Be the first student to review and rate this place!`,
           address,
-          distance: dist ? parseFloat(dist) : 1.5,
+          distance: item.distance != null ? parseFloat(item.distance) : 2.0,
           lat: itemLat,
           lng: itemLng,
-          category_name: catName || 'General',
-          price_range: '₹ - ₹₹',
-          average_rating: null,
-          rating_count: 0,
-          reviews: [],
+          category_name: catName || item.category_name || 'General',
+          price_range: item.price_range || '₹ - ₹₹',
+          average_rating: item.average_rating || null,
+          rating_count: item.rating_count || 0,
+          reviews: item.reviews || [],
           isOnline: true
         };
       });

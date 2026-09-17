@@ -294,6 +294,170 @@ const createPlace = async (req, res) => {
   }
 };
 
+// In-memory cache for online search results
+const onlineSearchCache = new Map();
+
+// Keyword mapping for Local Guide categories
+const CATEGORY_MAP = {
+  'food': ['restaurant', 'cafe', 'dhaba', 'fast food'],
+  'healthcare': ['hospital', 'pharmacy', 'clinic', 'chemist'],
+  'local hotspots': ['park', 'monument', 'temple', 'ghat', 'tourist attraction'],
+  'tech support': ['electronics', 'computer repair', 'mobile repair'],
+  'general stores': ['supermarket', 'convenience store', 'stationery', 'grocery'],
+  'cinema': ['cinema', 'movie theatre'],
+  'arcades': ['arcade', 'gaming center', 'amusement'],
+  'clothing': ['clothing store', 'tailor', 'garments'],
+  'logistics': ['courier', 'post office', 'parcel service'],
+  'miscellaneous': ['stationery', 'xerox', 'printing']
+};
+
+/**
+ * Server-side online search proxy
+ * Overcomes browser CORS restrictions and User-Agent blocking by Nominatim.
+ */
+const searchOnlinePlaces = async (req, res) => {
+  try {
+    const category = (req.query.category || '').trim();
+    const q = (req.query.q || '').trim();
+    const lat = parseFloat(req.query.lat) || 25.4920; // Default: MNNIT Prayagraj
+    const lng = parseFloat(req.query.lng) || 81.8639;
+    const radiusMeters = parseInt(req.query.radius, 10) || 15000;
+
+    const cacheKey = `${category.toLowerCase()}:${q.toLowerCase()}:${lat.toFixed(3)}:${lng.toFixed(3)}`;
+    if (onlineSearchCache.has(cacheKey)) {
+      const cached = onlineSearchCache.get(cacheKey);
+      if (Date.now() - cached.timestamp < 3600000) {
+        return res.json({ success: true, places: cached.data, cached: true });
+      }
+    }
+
+    let searchTerm = q;
+    if (!searchTerm && category) {
+      const catLower = category.toLowerCase();
+      const keywords = CATEGORY_MAP[catLower] || [category];
+      searchTerm = keywords[0];
+    }
+    if (!searchTerm) {
+      searchTerm = 'restaurant';
+    }
+
+    const delta = Math.max(0.08, (radiusMeters / 1000) / 111);
+    const viewbox = [
+      (lng - delta).toFixed(4),
+      (lat + delta).toFixed(4),
+      (lng + delta).toFixed(4),
+      (lat - delta).toFixed(4)
+    ].join(',');
+
+    const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchTerm)}&viewbox=${viewbox}&bounded=1&limit=25&countrycodes=in&addressdetails=1`;
+
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'CampusCare/1.0 (educational portal; contact: campuscare404@gmail.com)'
+      },
+      signal: AbortSignal.timeout(8000)
+    });
+
+    let rawPlaces = [];
+    if (response.ok) {
+      rawPlaces = await response.json();
+    }
+
+    if (rawPlaces.length === 0) {
+      const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchTerm)}&viewbox=${viewbox}&bounded=0&limit=20&countrycodes=in&addressdetails=1`;
+      const fbRes = await fetch(fallbackUrl, {
+        headers: {
+          'User-Agent': 'CampusCare/1.0 (educational portal; contact: campuscare404@gmail.com)'
+        },
+        signal: AbortSignal.timeout(8000)
+      });
+      if (fbRes.ok) {
+        rawPlaces = await fbRes.json();
+      }
+    }
+
+    const R = 6371;
+    const formatted = rawPlaces.map((item, idx) => {
+      const itemLat = parseFloat(item.lat);
+      const itemLng = parseFloat(item.lon || item.lng);
+
+      let dist = null;
+      if (!isNaN(itemLat) && !isNaN(itemLng)) {
+        const dLat = ((itemLat - lat) * Math.PI) / 180;
+        const dLon = ((itemLng - lng) * Math.PI) / 180;
+        const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos((lat * Math.PI) / 180) * Math.cos((itemLat * Math.PI) / 180) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        dist = parseFloat((R * c).toFixed(1));
+      }
+
+      const name = (item.display_name || item.name || 'Local Spot').split(',')[0].trim();
+      const addressParts = (item.display_name || '').split(',').slice(1, 4).map(s => s.trim()).filter(Boolean);
+      const address = addressParts.join(', ') || 'Prayagraj';
+
+      return {
+        place_id: `online-osm-${item.place_id || idx}`,
+        place_name: name,
+        place_description: `Discovered from OpenStreetMap directory near campus (${address}). Be the first student to review and rate this spot!`,
+        address,
+        distance: dist != null ? dist : 2.5,
+        lat: itemLat,
+        lng: itemLng,
+        category_name: category || 'General',
+        price_range: '₹ - ₹₹',
+        average_rating: null,
+        rating_count: 0,
+        reviews: [],
+        isOnline: true
+      };
+    }).sort((a, b) => a.distance - b.distance);
+
+    onlineSearchCache.set(cacheKey, { data: formatted, timestamp: Date.now() });
+
+    res.json({
+      success: true,
+      query: searchTerm,
+      category,
+      places: formatted,
+      count: formatted.length
+    });
+  } catch (error) {
+    console.error('Online search error:', error.message);
+    res.json({
+      success: true,
+      places: [],
+      count: 0,
+      error: error.message
+    });
+  }
+};
+
+/**
+ * Server-side OSRM route calculation proxy
+ * Avoids browser CSP/CORS blocking and guarantees full road paths.
+ */
+const calculateRoute = async (req, res) => {
+  try {
+    const { startLat, startLng, endLat, endLng, profile = 'driving' } = req.query;
+    if (!startLat || !startLng || !endLat || !endLng) {
+      return res.status(400).json({ success: false, message: 'Coordinates required' });
+    }
+
+    const url = `https://router.project-osrm.org/route/v1/${profile}/${startLng},${startLat};${endLng},${endLat}?overview=full&geometries=geojson&steps=true`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!response.ok) {
+      throw new Error(`OSRM responded with status ${response.status}`);
+    }
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Route calculation error:', error.message);
+    res.status(502).json({ success: false, error: error.message });
+  }
+};
+
 module.exports = {
   getPlaces,
   getPlacesByCategory,
@@ -302,5 +466,7 @@ module.exports = {
   addRating,
   getUserRating,
   getPlaceReviews,
-  createPlace
+  createPlace,
+  searchOnlinePlaces,
+  calculateRoute
 };
